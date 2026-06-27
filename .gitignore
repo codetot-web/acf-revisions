@@ -1,0 +1,10 @@
+# Logs
+*.log
+.DS_Store
+
+# Composer
+vendor/
+composer.lock
+
+# OS files
+Thumbs.db

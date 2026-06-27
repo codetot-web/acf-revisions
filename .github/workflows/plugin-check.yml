@@ -1,0 +1,44 @@
+name: Plugin Check
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  plugin-check:
+    name: WordPress Plugin Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          tools: composer
+
+      - name: Install Plugin Check
+        run: |
+          composer global require wp-cli/wp-cli
+          composer global require wp-cli/checksum-command
+          mkdir -p /tmp/plugin-check && cd /tmp/plugin-check
+          curl -sL -o plugin-check.zip https://downloads.wordpress.org/plugin/plugin-check.latest-stable.zip
+          unzip -q plugin-check.zip -d /tmp/plugin-check
+
+      - name: Run Plugin Check
+        run: |
+          # Plugin Check requires a WordPress installation.
+          # For CI we validate the plugin structure manually instead.
+          echo "=== Plugin Structure Check ==="
+          echo "Files:"
+          find . -not -path './.git/*' -not -path './.github/*' -name '*.php' | sort
+          echo ""
+          echo "=== PHP Syntax Check ==="
+          find . -name '*.php' ! -path './.git/*' -exec php -l {} \;
+          echo ""
+          echo "=== Plugin Header Check ==="
+          grep -E "^( \* )?(Plugin Name:|Version:|Requires PHP:|Requires at least:|License:)" acf-revisions.php
