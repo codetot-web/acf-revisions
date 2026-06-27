@@ -50,14 +50,14 @@ class ACFR_Bridge {
 		 *
 		 * @param string $field_group_key The ACF field group key.
 		 */
-		$this->field_group_key = apply_filters( 'acf_revisions_field_group_key', 'group_69577fd380786' );
+		$this->field_group_key = apply_filters( 'acfr_field_group_key', 'group_69577fd380786' );
 
 		/**
 		 * Filter which post types should have ACF meta revisioned.
 		 *
 		 * @param string[] $post_types Array of post type slugs.
 		 */
-		$this->post_types = apply_filters( 'acf_revisions_post_types', array( 'page', 'post' ) );
+		$this->post_types = apply_filters( 'acfr_post_types', array( 'page', 'post' ) );
 
 		$this->register_hooks();
 	}
@@ -167,7 +167,7 @@ class ACFR_Bridge {
 			return;
 		}
 
-		$backups = get_option( '_acf_revisions_field_group_backups', array() );
+		$backups = get_option( '_acfr_field_group_backups', array() );
 
 		// Store the current field group state from ACF's local store.
 		$snapshot = array(
@@ -184,7 +184,7 @@ class ACFR_Bridge {
 		// Keep only the last 10 snapshots.
 		$backups = array_slice( $backups, 0, 10 );
 
-		update_option( '_acf_revisions_field_group_backups', $backups, false );
+		update_option( '_acfr_field_group_backups', $backups, false );
 	}
 
 	/**
@@ -223,7 +223,7 @@ class ACFR_Bridge {
 		// The revision will be created by WordPress save_post flow.
 		// Our _wp_put_post_revision hook (Hook 1) will copy the meta.
 		// This hook is just for logging/debugging.
-		do_action( 'acf_revisions_meta_changed', $post_id, $meta_key, $post_id );
+		do_action( 'acfr_meta_changed', $post_id, $meta_key, $post_id );
 	}
 
 	/**
@@ -246,7 +246,7 @@ class ACFR_Bridge {
 		// Store the pre-save snapshot in post meta for comparison.
 		$before = $this->get_acf_section_meta( $post_id );
 		if ( ! empty( $before ) ) {
-			update_post_meta( $post_id, '_acf_revisions_before', $before );
+			update_post_meta( $post_id, '_acfr_before', $before );
 		}
 	}
 

@@ -13,7 +13,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * @return ACFR_Bridge|null
  */
-function acf_revisions_get_bridge(): ?ACFR_Bridge {
+function acfr_get_bridge(): ?ACFR_Bridge {
 	$plugin = ACFR_Plugin::get_instance();
 	return $plugin->bridge;
 }

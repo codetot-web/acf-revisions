@@ -22,24 +22,24 @@
 // Exit if accessed directly.
 defined( 'ABSPATH' ) || exit;
 
-define( 'ACF_REVISIONS_VERSION', '1.0.0' );
-define( 'ACF_REVISIONS_FILE', __FILE__ );
-define( 'ACF_REVISIONS_DIR', plugin_dir_path( __FILE__ ) );
-define( 'ACF_REVISIONS_URL', plugin_dir_url( __FILE__ ) );
+define( 'ACFR_VERSION', '1.0.0' );
+define( 'ACFR_FILE', __FILE__ );
+define( 'ACFR_DIR', plugin_dir_path( __FILE__ ) );
+define( 'ACFR_URL', plugin_dir_url( __FILE__ ) );
 
 /**
  * Initialize the plugin.
  */
-function acf_revisions_init(): void {
+function acfr_init(): void {
 	static $loaded = false;
 	if ( $loaded ) {
 		return;
 	}
 	$loaded = true;
 
-	require_once ACF_REVISIONS_DIR . 'includes/helpers.php';
-	require_once ACF_REVISIONS_DIR . 'includes/class-acf-revisions.php';
-	require_once ACF_REVISIONS_DIR . 'includes/class-acf-revisions-bridge.php';
+	require_once ACFR_DIR . 'includes/helpers.php';
+	require_once ACFR_DIR . 'includes/class-acf-revisions.php';
+	require_once ACFR_DIR . 'includes/class-acf-revisions-bridge.php';
 
 	// Initialize the singleton.
 	ACFR_Plugin::get_instance();
@@ -47,11 +47,11 @@ function acf_revisions_init(): void {
 	/**
 	 * Fires after ACF Revisions plugin is loaded.
 	 */
-	do_action( 'acf_revisions_loaded' );
+	do_action( 'acfr_loaded' );
 }
 
 // Hook into WordPress.
-add_action( 'plugins_loaded', 'acf_revisions_init' );
+add_action( 'plugins_loaded', 'acfr_init' );
 
 /**
  * Activation hook.
@@ -67,7 +67,7 @@ register_activation_hook( __FILE__, function () {
 	}
 
 	// Ensure the post types using flexible content support revisions.
-	$flexible_post_types = apply_filters( 'acf_revisions_post_types', array( 'page', 'post' ) );
+	$flexible_post_types = apply_filters( 'acfr_post_types', array( 'page', 'post' ) );
 	foreach ( $flexible_post_types as $pt ) {
 		$post_type_obj = get_post_type_object( $pt );
 		if ( $post_type_obj && ! post_type_supports( $pt, 'revisions' ) ) {

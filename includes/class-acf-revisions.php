@@ -72,7 +72,7 @@ class ACFR_Plugin {
 		);
 
 		foreach ( $files as $file ) {
-			$path = ACF_REVISIONS_DIR . 'includes/' . $file;
+			$path = ACFR_DIR . 'includes/' . $file;
 			if ( file_exists( $path ) ) {
 				require_once $path;
 			}
@@ -109,7 +109,7 @@ class ACFR_Plugin {
 		load_plugin_textdomain(
 			'acf-revisions',
 			false,
-			dirname( plugin_basename( ACF_REVISIONS_FILE ) ) . '/languages'
+			dirname( plugin_basename( ACFR_FILE ) ) . '/languages'
 		);
 	}
 

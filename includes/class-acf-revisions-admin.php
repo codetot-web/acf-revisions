@@ -40,18 +40,18 @@ class ACFR_Admin {
 	 * Handle form submissions.
 	 */
 	public function handle_actions(): void {
-		if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'acf_revisions_action' ) ) {
+		if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'acfr_action' ) ) {
 			return;
 		}
 
 		$action = isset( $_GET['action'] ) ? sanitize_key( $_GET['action'] ) : '';
 
 		if ( 'integrity_check' === $action ) {
-			$result = acf_revisions_get_bridge()->integrity_check( array(
+			$result = acfr_get_bridge()->integrity_check( array(
 				'fix' => isset( $_GET['fix'] ) && '1' === $_GET['fix'],
 			) );
 
-			set_transient( 'acf_revisions_result', $result, 60 );
+			set_transient( 'acfr_result', $result, 60 );
 			wp_safe_redirect( remove_query_arg( array( '_wpnonce', 'action', 'fix' ) ) );
 			exit;
 		}
@@ -61,8 +61,8 @@ class ACFR_Admin {
 	 * Render the admin settings page.
 	 */
 	public function render_admin_page(): void {
-		$result = get_transient( 'acf_revisions_result' );
-		delete_transient( 'acf_revisions_result' );
+		$result = get_transient( 'acfr_result' );
+		delete_transient( 'acfr_result' );
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html__( 'ACF Revisions', 'acf-revisions' ); ?></h1>
@@ -106,11 +106,11 @@ class ACFR_Admin {
 						<?php
 						$check_url = wp_nonce_url(
 							add_query_arg( array( 'action' => 'integrity_check' ) ),
-							'acf_revisions_action'
+							'acfr_action'
 						);
 						$fix_url = wp_nonce_url(
 							add_query_arg( array( 'action' => 'integrity_check', 'fix' => '1' ) ),
-							'acf_revisions_action'
+							'acfr_action'
 						);
 						?>
 						<a href="<?php echo esc_url( $check_url ); ?>" class="button">

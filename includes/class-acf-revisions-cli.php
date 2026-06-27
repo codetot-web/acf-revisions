@@ -60,7 +60,7 @@ class ACFR_CLI extends WP_CLI_Command {
 	 * @param array $assoc_args Associative arguments.
 	 */
 	public function check( array $args, array $assoc_args ): void {
-		$bridge = acf_revisions_get_bridge();
+		$bridge = acfr_get_bridge();
 
 		if ( ! $bridge ) {
 			WP_CLI::error( 'ACF Revisions bridge not initialized. Is ACF Pro active?' );
@@ -127,7 +127,7 @@ class ACFR_CLI extends WP_CLI_Command {
 	 * @param array $assoc_args Associative arguments.
 	 */
 	public function snapshots( array $args, array $assoc_args ): void {
-		$backups = get_option( '_acf_revisions_field_group_backups', array() );
+		$backups = get_option( '_acfr_field_group_backups', array() );
 
 		if ( empty( $backups ) ) {
 			WP_CLI::warning( 'No field group snapshots found.' );
@@ -173,7 +173,7 @@ class ACFR_CLI extends WP_CLI_Command {
 			WP_CLI::error( "Post $post_id not found." );
 		}
 
-		$bridge = acf_revisions_get_bridge();
+		$bridge = acfr_get_bridge();
 		if ( ! $bridge ) {
 			WP_CLI::error( 'Bridge not initialized.' );
 		}
