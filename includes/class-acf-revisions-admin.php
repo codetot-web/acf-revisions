@@ -19,6 +19,10 @@ class ACFR_Admin {
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_styles' ) );
+
+		// Register ACF sections as a revision diff field.
+		add_filter( '_wp_post_revision_fields', array( $this, 'add_revision_field' ) );
+		add_filter( '_wp_post_revision_field_acfr_sections', array( $this, 'render_revision_field' ), 10, 3 );
 	}
 
 	/**
@@ -167,5 +171,82 @@ wp acf-revisions test-bridge --post_id=123</code></pre>
 			.acf-revisions-tools { margin-top: 20px; }
 			.acf-revisions-tools code { display: block; padding: 10px; background: #f0f0f1; }
 		' );
+	}
+
+	/**
+	 * Register ACF sections as a field in the revision diff view.
+	 *
+	 * WordPress revision.php only shows post_title and post_content by default.
+	 * This adds an "ACF Sections" row that displays the section layout names
+	 * and key field values so editors can see what ACF data changed.
+	 *
+	 * @param array<string, string> $fields Registered revision fields.
+	 * @return array<string, string>
+	 */
+	public function add_revision_field( array $fields ): array {
+		$fields['acfr_sections'] = __( 'ACF Sections', 'acf-revisions' );
+		return $fields;
+	}
+
+	/**
+	 * Render ACF sections value for the revision diff.
+	 *
+	 * Produces a human-readable text representation of the sections data.
+	 * WordPress's built-in text diff algorithm will highlight changes between
+	 * the "before" and "after" versions.
+	 *
+	 * @param string       $value Current field value (empty by default).
+	 * @param string       $field Field name.
+	 * @param WP_Post|null $post  The revision or parent post.
+	 * @return string Text representation of sections.
+	 */
+	public function render_revision_field( string $value, string $field, $post ): string {
+		if ( ! $post || empty( $post->ID ) ) {
+			return '';
+		}
+
+		$acf_meta = get_post_meta( $post->ID );
+		if ( empty( $acf_meta ) ) {
+			return '';
+		}
+
+		// Get the sections layout names.
+		$sections = isset( $acf_meta['sections'] ) ? maybe_unserialize( end( $acf_meta['sections'] ) ) : array();
+		if ( ! is_array( $sections ) ) {
+			$sections = array();
+		}
+
+		$output = '';
+
+		// Build a readable summary per section.
+		foreach ( $sections as $idx => $layout_name ) {
+			$output .= sprintf( "%d. %s\n", $idx + 1, $layout_name );
+
+			// Collect field values for this section.
+			$field_prefix = 'sections_' . $idx . '_';
+			foreach ( $acf_meta as $meta_key => $meta_values ) {
+				if ( ! str_starts_with( $meta_key, $field_prefix ) ) {
+					continue;
+				}
+				// Skip internal field reference keys (prefixed with _).
+				if ( str_starts_with( $meta_key, '_' ) ) {
+					continue;
+				}
+
+				$field_name = substr( $meta_key, strlen( $field_prefix ) );
+				$meta_value = maybe_unserialize( end( $meta_values ) );
+
+				if ( is_array( $meta_value ) ) {
+					$output .= sprintf( "    %s: (%d items)\n", $field_name, count( $meta_value ) );
+				} elseif ( is_string( $meta_value ) && strlen( $meta_value ) > 80 ) {
+					$output .= sprintf( "    %s: %s...\n", $field_name, substr( $meta_value, 0, 80 ) );
+				} elseif ( is_string( $meta_value ) && '' !== $meta_value ) {
+					$output .= sprintf( "    %s: %s\n", $field_name, $meta_value );
+				}
+			}
+			$output .= "\n";
+		}
+
+		return $output ?: __( '(no flexible content)', 'acf-revisions' );
 	}
 }
