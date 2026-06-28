@@ -557,6 +557,102 @@ class ACFR_CLI extends WP_CLI_Command {
 
 		return ! empty( $parts ) ? implode( ', ', $parts ) : '(no changes)';
 	}
+
+	/**
+	 * List or restore ACF options page snapshots.
+	 *
+	 * Shows recent snapshots of ACF options page data with
+	 * timestamps and option counts.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [<action>]
+	 * : Action: list (default) or restore.
+	 * ---
+	 * options:
+	 *   - list
+	 *   - restore
+	 * ---
+	 *
+	 * [<index>]
+	 * : Snapshot index to restore (-1 for most recent).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp acf-revisions options
+	 *     wp acf-revisions options restore -1
+	 *
+	 * @param array $args       Positional arguments.
+	 * @param array $assoc_args Associative arguments.
+	 */
+	public function options( array $args, array $assoc_args ): void {
+		$bridge = acfr_get_options();
+		if ( ! $bridge ) {
+			WP_CLI::error( 'Options bridge not initialized.' );
+		}
+
+		$action = $args[0] ?? 'list';
+
+		if ( 'restore' === $action ) {
+			$backups = get_option( '_acfr_options_backups', array() );
+			if ( empty( $backups ) ) {
+				WP_CLI::error( 'No options snapshots available.' );
+			}
+
+			$index = isset( $args[1] ) ? (int) $args[1] : -1;
+			if ( $index < 0 ) {
+				$index = count( $backups ) + $index;
+			}
+			if ( ! isset( $backups[ $index ] ) ) {
+				WP_CLI::error( "Snapshot $index not found. Available: 0-" . ( count( $backups ) - 1 ) );
+			}
+
+			$snap = $backups[ $index ];
+			WP_CLI::log( sprintf(
+				"Snapshot %d — %s (%s, %d options)",
+				$index,
+				$snap['date'],
+				$snap['post_id'],
+				count( $snap['snapshot'] )
+			) );
+			WP_CLI::confirm( 'Restore these options?' );
+
+			$restored = $bridge->restore_snapshot( $index );
+			WP_CLI::success( "Restored $restored option values." );
+			return;
+		}
+
+		// List mode.
+		$data  = $bridge->list_snapshots();
+		$current = $bridge->get_current_values();
+
+		WP_CLI::log( sprintf(
+			"Tracking prefixes: %s",
+			implode( ', ', $data['tracked_prefixes'] )
+		) );
+		WP_CLI::log( sprintf(
+			"Currently tracked options: %d\n",
+			count( $current )
+		) );
+
+		if ( empty( $data['backups'] ) ) {
+			WP_CLI::warning( 'No snapshots yet. They are created on acf/save_post for options pages.' );
+			return;
+		}
+
+		$rows = array();
+		foreach ( array_reverse( $data['backups'] ) as $i => $snap ) {
+			$idx = count( $data['backups'] ) - 1 - $i;
+			$rows[] = array(
+				'Index'   => $idx,
+				'Date'    => $snap['date'],
+				'Options' => count( $snap['snapshot'] ),
+				'Source'  => $snap['post_id'],
+			);
+		}
+		WP_CLI::log( 'Snapshots:' );
+		WP_CLI\Utils\format_items( 'table', $rows, array( 'Index', 'Date', 'Options', 'Source' ) );
+	}
 }
 
 /**

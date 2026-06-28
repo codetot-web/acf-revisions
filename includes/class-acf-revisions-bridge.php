@@ -234,8 +234,13 @@ class ACFR_Bridge {
 	 *
 	 * @param int $post_id The post ID being saved.
 	 */
-	public function snapshot_on_acf_save( int $post_id ): void {
-		if ( ! $this->is_tracked_post_type( $post_id ) ) {
+	public function snapshot_on_acf_save( $post_id ): void {
+		if ( is_string( $post_id ) ) {
+			// Options pages use string post_id — handled by ACFR_Options_Bridge.
+			return;
+		}
+
+		if ( ! $this->is_tracked_post_type( (int) $post_id ) ) {
 			return;
 		}
 

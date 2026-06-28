@@ -28,6 +28,13 @@ class ACFR_Plugin {
 	public $bridge = null;
 
 	/**
+	 * Options bridge instance.
+	 *
+	 * @var ACFR_Options_Bridge|null
+	 */
+	public $options = null;
+
+	/**
 	 * Admin instance.
 	 *
 	 * @var ACFR_Admin|null
@@ -67,6 +74,7 @@ class ACFR_Plugin {
 	private function load_dependencies(): void {
 		$files = array(
 			'class-acf-revisions-bridge.php',
+			'class-acf-revisions-options.php',
 			'class-acf-revisions-admin.php',
 			'class-acf-revisions-cli.php',
 		);
@@ -86,6 +94,11 @@ class ACFR_Plugin {
 		// Initialize bridge hooks.
 		if ( class_exists( 'ACFR_Bridge' ) ) {
 			$this->bridge = new ACFR_Bridge();
+		}
+
+		// Initialize options page bridge.
+		if ( class_exists( 'ACFR_Options_Bridge' ) ) {
+			$this->options = new ACFR_Options_Bridge();
 		}
 
 		// Initialize admin UI (admin only).
