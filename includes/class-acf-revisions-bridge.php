@@ -80,6 +80,12 @@ class ACFR_Bridge {
 
 		// Hook 5: Snapshot when ACF saves post data.
 		add_action( 'acf/save_post', array( $this, 'snapshot_on_acf_save' ), 5 );
+
+		// Hook 6: Preventative guard — block save if sections data would be destroyed.
+		add_action( 'acf/save_post', array( $this, 'guard_before_save' ), 1, 1 );
+
+		// Hook 7: Auto-recovery — if field values dropped, restore from pre-save snapshot.
+		add_action( 'acf/save_post', array( $this, 'auto_restore_if_data_loss' ), 20, 1 );
 	}
 
 	/**
@@ -479,5 +485,188 @@ class ACFR_Bridge {
 			'fixed'  => $fixed,
 			'total'  => $total,
 		);
+	}
+
+	/**
+	 * Hook 6: Preventative guard against data loss.
+	 *
+	 * Runs at acf/save_post priority 1 (before ACF processes data).
+	 * If the current post has rich ACF sections data but the incoming
+	 * POST data has empty/drastically reduced field values, block the
+	 * save with an admin error message.
+	 *
+	 * This only activates for classic-editor form submissions (POST).
+	 * Gutenberg/REST saves are handled by auto_restore_if_data_loss.
+	 *
+	 * @param string|int $post_id Post ID or options identifier.
+	 */
+	public function guard_before_save( $post_id ): void {
+		if ( is_string( $post_id ) ) {
+			return;
+		}
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return;
+		}
+
+		$post_id = (int) $post_id;
+		if ( ! $this->is_tracked_post_type( $post_id ) ) {
+			return;
+		}
+
+		// Only guard classic-editor form submissions.
+		if ( empty( $_POST['acf'] ) ) {
+			return;
+		}
+
+		// Get current sections layout and value count.
+		$current_sections = get_post_meta( $post_id, 'sections', true );
+		if ( ! is_array( $current_sections ) || count( $current_sections ) < 2 ) {
+			return;
+		}
+
+		$current_value_count = $this->count_section_field_values( $post_id );
+		if ( $current_value_count < 10 ) {
+			return; // Already minimal data, nothing to guard.
+		}
+
+		// Check how many section rows were submitted via POST.
+		// ACF flexible content uses the field key as POST key.
+		$field_key = $this->get_sections_field_key();
+		if ( ! $field_key ) {
+			return;
+		}
+
+		$submitted_rows = isset( $_POST['acf'][ $field_key ] ) ? (array) $_POST['acf'][ $field_key ] : array();
+
+		// Count non-empty submitted rows (rows with actual content, not just layout name).
+		$non_empty_rows = 0;
+		foreach ( $submitted_rows as $row ) {
+			if ( is_array( $row ) ) {
+				// Count sub-fields that have non-empty values.
+				$filled = 0;
+				foreach ( $row as $sub_key => $sub_val ) {
+					if ( 'acf_fc_layout' !== $sub_key && ! empty( $sub_val ) ) {
+						$filled++;
+					}
+				}
+				if ( $filled > 0 ) {
+					$non_empty_rows++;
+				}
+			}
+		}
+
+		// If user deliberately cleared the page (0 non-empty rows), allow it.
+		if ( 0 === $non_empty_rows ) {
+			return;
+		}
+
+		// If submitted row count is less than half of current, block.
+		if ( $non_empty_rows < count( $current_sections ) / 2 ) {
+			$count_current_sections = count( $current_sections );
+			wp_die(
+				wp_kses_post( sprintf(
+					'<h2>%s</h2><p>%s</p><p>%s</p><p>%s</p>',
+					__( 'ACF Revisions: Save Blocked', 'acf-revisions' ),
+					sprintf(
+						// translators: %1$d is the current section count, %2$d is the submitted count.
+						__( 'Section field values dropped from %1$d sections to %2$d submitted rows. This looks like ACF field group key mismatch — saving would destroy existing content.', 'acf-revisions' ),
+						$count_current_sections,
+						count( $submitted_rows )
+					),
+					__( 'The page content has been preserved. Please restore a revision before saving.', 'acf-revisions' ),
+					sprintf(
+						'<a href="%s">%s</a>',
+						esc_url( admin_url( 'revision.php?revision=' . end( wp_get_post_revisions( $post_id, array( 'posts_per_page' => 1 ) )->ID ) ) ),
+						__( 'View recent revisions', 'acf-revisions' )
+					)
+				) ),
+				__( 'Save Blocked — ACF Data Loss Detected', 'acf-revisions' ),
+				array( 'back_link' => true, 'response' => 409 )
+			);
+			exit;
+		}
+	}
+
+	/**
+	 * Hook 7: Auto-recovery after save if sections data was lost.
+	 *
+	 * Runs at acf/save_post priority 20 (after ACF has written data).
+	 * If the sections layout array still exists but field values
+	 * have been cleared, restores them from the pre-save snapshot
+	 * captured by Hook 5.
+	 *
+	 * This catches cases that guard_before_save misses (REST API,
+	 * Gutenberg, AJAX saves).
+	 *
+	 * @param string|int $post_id Post ID or options identifier.
+	 */
+	public function auto_restore_if_data_loss( $post_id ): void {
+		if ( is_string( $post_id ) ) {
+			return;
+		}
+
+		$post_id = (int) $post_id;
+		if ( ! $this->is_tracked_post_type( $post_id ) ) {
+			return;
+		}
+
+		// Check current sections state.
+		$current_sections = get_post_meta( $post_id, 'sections', true );
+		if ( ! is_array( $current_sections ) || count( $current_sections ) < 2 ) {
+			return;
+		}
+
+		$value_count = $this->count_section_field_values( $post_id );
+		if ( $value_count > 5 ) {
+			return; // Data looks healthy.
+		}
+
+		// Data loss detected! Attempt auto-restore from pre-save snapshot.
+		$snapshot = get_post_meta( $post_id, '_acfr_before', true );
+		if ( empty( $snapshot ) ) {
+			// No snapshot available — log and give up.
+			update_option( '_acfr_auto_restore_failed', array(
+				'time'    => time(),
+				'post_id' => $post_id,
+				'reason'  => 'No pre-save snapshot found',
+			), false );
+			return;
+		}
+
+		$restored = 0;
+		foreach ( $snapshot as $key => $value ) {
+			if ( str_starts_with( $key, 'sections_' ) || '_sections' === $key ) {
+				update_post_meta( $post_id, $key, $value );
+				$restored++;
+			}
+		}
+
+		// Clear the ACF cache so it re-reads the restored data.
+		$this->clear_acf_cache();
+
+		// Log the auto-restore for debugging.
+		update_option( '_acfr_auto_restore_log', array(
+			'time'           => time(),
+			'post_id'        => $post_id,
+			'value_count_before' => $value_count,
+			'restored_count' => $restored,
+		), false );
+	}
+
+	/**
+	 * Count field values (non-ref, non-layout-array) for sections.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return int Number of section field value keys.
+	 */
+	private function count_section_field_values( int $post_id ): int {
+		$meta = get_post_meta( $post_id );
+		$count = 0;
+		foreach ( $meta as $key => $values ) {
+			if ( preg_match( '/^sections_\d+_/', $key ) && ! str_starts_with( $key, '_' ) ) {
+				$count++;
+			}
+		}
+		return $count;
 	}
 }
