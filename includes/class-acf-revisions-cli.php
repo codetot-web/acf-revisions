@@ -272,6 +272,184 @@ class ACFR_CLI extends WP_CLI_Command {
 			$parent_id
 		) );
 	}
+
+	/**
+	 * List recent revisions for a post with ACF sections diff summary.
+	 *
+	 * Shows the 5 most recent revisions, with key/value changes
+	 * in the ACF sections meta for each revision compared to its
+	 * previous version.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <post_id>
+	 * : The post ID to list revisions for.
+	 *
+	 * [--limit=<limit>]
+	 * : Number of revisions to show. Default: 5.
+	 *
+	 * [--format=<format>]
+	 * : Output format. Default: table. Options: table, json, csv.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp acf-revisions revisions 34
+	 *     wp acf-revisions revisions 34 --limit=10
+	 *     wp acf-revisions revisions 34 --format=json
+	 *
+	 * @param array $args       Positional arguments.
+	 * @param array $assoc_args Associative arguments.
+	 */
+	public function revisions( array $args, array $assoc_args ): void {
+		$post_id = (int) $args[0];
+		$limit   = min( (int) ( $assoc_args['limit'] ?? 5 ), 50 );
+		$format  = $assoc_args['format'] ?? 'table';
+
+		$post = get_post( $post_id );
+		if ( ! $post ) {
+			WP_CLI::error( "Post $post_id not found." );
+		}
+
+		$revisions = wp_get_post_revisions( $post_id, array(
+			'posts_per_page' => $limit,
+			'orderby'        => 'post_date',
+			'order'          => 'DESC',
+		) );
+
+		if ( empty( $revisions ) ) {
+			WP_CLI::warning( "No revisions found for post $post_id." );
+			return;
+		}
+
+		$items = array();
+
+		foreach ( $revisions as $rev ) {
+			$sections = get_post_meta( $rev->ID, 'sections', true );
+			if ( ! is_array( $sections ) ) {
+				$sections = array();
+			}
+
+			$fields  = $this->acfr_get_field_values( $rev->ID );
+			$changes = $this->acfr_diff_previous( $rev->ID, $post_id );
+			$author  = get_userdata( $rev->post_author );
+
+			$items[] = array(
+				'revision_id'  => $rev->ID,
+				'date'         => $rev->post_date,
+				'author'       => $author ? $author->user_login : 'unknown',
+				'layout_count' => count( $sections ),
+				'layouts'      => implode( ', ', $sections ),
+				'field_count'  => count( $fields ),
+				'changes'      => $changes,
+			);
+		}
+
+		if ( 'table' === $format || 'csv' === $format ) {
+			$display = array();
+			foreach ( $items as $item ) {
+				$display[] = array(
+					'Rev ID'  => $item['revision_id'],
+					'Date'    => $item['date'],
+					'Author'  => $item['author'],
+					'Layouts' => $item['layout_count'],
+					'Fields'  => $item['field_count'],
+					'Changes' => $item['changes'],
+				);
+			}
+			WP_CLI\Utils\format_items( $format, $display, array( 'Rev ID', 'Date', 'Author', 'Layouts', 'Fields', 'Changes' ) );
+		} else {
+			WP_CLI\Utils\format_items( $format, $items, array( 'revision_id', 'date', 'author', 'layout_count', 'layouts', 'field_count', 'changes' ) );
+		}
+	}
+
+	/**
+	 * Get ACF field values for a post/revision (non-ref keys).
+	 *
+	 * @param int $post_id Post or revision ID.
+	 * @return array<string, mixed>
+	 */
+	private function acfr_get_field_values( int $post_id ): array {
+		$meta  = get_post_meta( $post_id );
+		$items = array();
+		foreach ( $meta as $key => $values ) {
+			if ( str_starts_with( $key, 'sections_' ) && ! str_starts_with( $key, '_' ) ) {
+				$items[ $key ] = maybe_unserialize( end( $values ) );
+			}
+		}
+		return $items;
+	}
+
+	/**
+	 * Diff ACF sections meta between a revision and its immediate predecessor.
+	 *
+	 * @param int $rev_id  Current revision ID.
+	 * @param int $post_id Parent post ID.
+	 * @return string Human-readable diff summary.
+	 */
+	private function acfr_diff_previous( int $rev_id, int $post_id ): string {
+		$rev = get_post( $rev_id );
+		if ( ! $rev ) {
+			return 'unknown';
+		}
+
+		global $wpdb;
+		$prev_id = $wpdb->get_var( $wpdb->prepare(
+			"SELECT ID FROM $wpdb->posts
+			 WHERE post_type = 'revision'
+			   AND post_parent = %d
+			   AND post_date < %s
+			   AND ID != %d
+			 ORDER BY post_date DESC
+			 LIMIT 1",
+			$post_id,
+			$rev->post_date,
+			$rev_id
+		) );
+
+		if ( ! $prev_id ) {
+			return '(first revision)';
+		}
+
+		$cur_sections  = array_filter( (array) get_post_meta( $rev_id, 'sections', true ) );
+		$prev_sections = array_filter( (array) get_post_meta( $prev_id, 'sections', true ) );
+
+		$parts = array();
+
+		if ( $cur_sections !== $prev_sections ) {
+			$added   = array_diff( $cur_sections, $prev_sections );
+			$removed = array_diff( $prev_sections, $cur_sections );
+			if ( ! empty( $added ) ) {
+				$parts[] = '+' . implode( ',+', $added );
+			}
+			if ( ! empty( $removed ) ) {
+				$parts[] = '-' . implode( ',-', $removed );
+			}
+		}
+
+		$cur_fields  = $this->acfr_get_field_values( $rev_id );
+		$prev_fields = $this->acfr_get_field_values( $prev_id );
+
+		$changed = 0;
+		foreach ( $cur_fields as $key => $val ) {
+			if ( array_key_exists( $key, $prev_fields ) && $prev_fields[ $key ] !== $val ) {
+				$changed++;
+			}
+		}
+		$new_keys  = count( $cur_fields ) - count( array_intersect_key( $cur_fields, $prev_fields ) );
+		$del_keys  = count( $prev_fields ) - count( array_intersect_key( $prev_fields, $cur_fields ) );
+
+		if ( $new_keys > 0 ) {
+			$parts[] = "+{$new_keys}f";
+		}
+		if ( $del_keys > 0 ) {
+			$parts[] = "-{$del_keys}f";
+		}
+		if ( $changed > 0 ) {
+			$parts[] = "{$changed}f changed";
+		}
+
+		return ! empty( $parts ) ? implode( ', ', $parts ) : '(no changes)';
+	}
 }
 
 /**
