@@ -274,19 +274,24 @@ class ACFR_CLI extends WP_CLI_Command {
 	}
 
 	/**
-	 * List recent revisions for a post with ACF sections diff summary.
+	 * List recent revisions for a post, or diff a specific revision against current state.
 	 *
-	 * Shows the 5 most recent revisions, with key/value changes
-	 * in the ACF sections meta for each revision compared to its
-	 * previous version.
+	 * Without <revision_id>: shows the 5 most recent revisions with ACF sections
+	 * diff summary for each.
+	 *
+	 * With <revision_id>: shows a detailed key/value diff between that revision
+	 * and the current post state.
 	 *
 	 * ## OPTIONS
 	 *
 	 * <post_id>
-	 * : The post ID to list revisions for.
+	 * : The post ID to inspect.
+	 *
+	 * [<revision_id>]
+	 * : Optional revision ID for detailed diff vs current state.
 	 *
 	 * [--limit=<limit>]
-	 * : Number of revisions to show. Default: 5.
+	 * : Number of revisions to show (list mode only). Default: 5.
 	 *
 	 * [--format=<format>]
 	 * : Output format. Default: table. Options: table, json, csv.
@@ -296,19 +301,29 @@ class ACFR_CLI extends WP_CLI_Command {
 	 *     wp acf-revisions revisions 34
 	 *     wp acf-revisions revisions 34 --limit=10
 	 *     wp acf-revisions revisions 34 --format=json
+	 *     wp acf-revisions revisions 34 6732
 	 *
 	 * @param array $args       Positional arguments.
 	 * @param array $assoc_args Associative arguments.
 	 */
 	public function revisions( array $args, array $assoc_args ): void {
 		$post_id = (int) $args[0];
-		$limit   = min( (int) ( $assoc_args['limit'] ?? 5 ), 50 );
-		$format  = $assoc_args['format'] ?? 'table';
 
 		$post = get_post( $post_id );
 		if ( ! $post ) {
 			WP_CLI::error( "Post $post_id not found." );
 		}
+
+		// Single-revision diff mode.
+		if ( isset( $args[1] ) ) {
+			$rev_id = (int) $args[1];
+			$this->show_revision_diff( $post_id, $rev_id );
+			return;
+		}
+
+		// List mode (default).
+		$limit  = min( (int) ( $assoc_args['limit'] ?? 5 ), 50 );
+		$format = $assoc_args['format'] ?? 'table';
 
 		$revisions = wp_get_post_revisions( $post_id, array(
 			'posts_per_page' => $limit,
@@ -360,6 +375,98 @@ class ACFR_CLI extends WP_CLI_Command {
 		} else {
 			WP_CLI\Utils\format_items( $format, $items, array( 'revision_id', 'date', 'author', 'layout_count', 'layouts', 'field_count', 'changes' ) );
 		}
+	}
+
+	/**
+	 * Show a detailed key/value diff between a revision and the current post.
+	 *
+	 * @param int $post_id Parent post ID.
+	 * @param int $rev_id  Revision ID to compare.
+	 */
+	private function show_revision_diff( int $post_id, int $rev_id ): void {
+		if ( ! wp_is_post_revision( $rev_id ) ) {
+			WP_CLI::error( "Post $rev_id is not a revision of $post_id." );
+		}
+
+		$rev   = get_post( $rev_id );
+		$author = get_userdata( $rev->post_author );
+		$author_name = $author ? $author->user_login : 'unknown';
+
+		WP_CLI::log( sprintf(
+			"Revision %d — %s — by %s\n",
+			$rev_id,
+			$rev->post_date,
+			$author_name
+		) );
+
+		// Sections layout diff.
+		$post_sections  = array_filter( (array) get_post_meta( $post_id, 'sections', true ) );
+		$rev_sections   = array_filter( (array) get_post_meta( $rev_id, 'sections', true ) );
+
+		WP_CLI::log( "Section layouts:" );
+		$all_layouts = array_unique( array_merge( $post_sections, $rev_sections ) );
+		foreach ( $all_layouts as $layout ) {
+			$in_post = in_array( $layout, $post_sections, true );
+			$in_rev  = in_array( $layout, $rev_sections, true );
+			if ( $in_post && $in_rev ) {
+				WP_CLI::log( sprintf( "  %s  %s", WP_CLI::colorize( '%g✓%n' ), $layout ) );
+			} elseif ( $in_rev && ! $in_post ) {
+				WP_CLI::log( sprintf( "  %s  %s", WP_CLI::colorize( '%Y+%n' ), $layout ) );
+			} else {
+				WP_CLI::log( sprintf( "  %s  %s", WP_CLI::colorize( '%R-%n' ), $layout ) );
+			}
+		}
+
+		// Field value diff.
+		$post_fields = $this->acfr_get_field_values( $post_id );
+		$rev_fields  = $this->acfr_get_field_values( $rev_id );
+
+		$all_keys = array_unique( array_merge( array_keys( $post_fields ), array_keys( $rev_fields ) ) );
+		sort( $all_keys );
+
+		WP_CLI::log( "\nField values:" );
+
+		$changed_items = array();
+		foreach ( $all_keys as $key ) {
+			$in_post = array_key_exists( $key, $post_fields );
+			$in_rev  = array_key_exists( $key, $rev_fields );
+
+			if ( $in_rev && ! $in_post ) {
+				$val = $this->format_field_value( $rev_fields[ $key ] );
+				$changed_items[] = array( $key, WP_CLI::colorize( '%Y+' ), $val );
+			} elseif ( $in_post && ! $in_rev ) {
+				$val = $this->format_field_value( $post_fields[ $key ] );
+				$changed_items[] = array( $key, WP_CLI::colorize( '%R-' ), $val );
+			} elseif ( $post_fields[ $key ] !== $rev_fields[ $key ] ) {
+				$old_val = $this->format_field_value( $post_fields[ $key ] );
+				$new_val = $this->format_field_value( $rev_fields[ $key ] );
+				$changed_items[] = array( $key, WP_CLI::colorize( '%M~%n' ), "$old_val → $new_val" );
+			}
+		}
+
+		if ( empty( $changed_items ) ) {
+			WP_CLI::log( "  (no changes)" );
+		} else {
+			foreach ( $changed_items as $item ) {
+				WP_CLI::log( sprintf( "  %s %s %s", $item[1], $item[0], $item[2] ) );
+			}
+		}
+	}
+
+	/**
+	 * Format a field value for display.
+	 *
+	 * @param mixed $value The meta value.
+	 * @return string Formatted display string.
+	 */
+	private function format_field_value( $value ): string {
+		if ( is_array( $value ) ) {
+			return sprintf( '(%d items)', count( $value ) );
+		}
+		if ( is_string( $value ) && strlen( $value ) > 60 ) {
+			return substr( $value, 0, 60 ) . '...';
+		}
+		return (string) $value;
 	}
 
 	/**
