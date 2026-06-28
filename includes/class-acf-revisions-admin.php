@@ -23,6 +23,9 @@ class ACFR_Admin {
 		// Register ACF sections as a revision diff field.
 		add_filter( '_wp_post_revision_fields', array( $this, 'add_revision_field' ) );
 		add_filter( '_wp_post_revision_field_acfr_sections', array( $this, 'render_revision_field' ), 10, 3 );
+
+		// Warn if current post's ACF data has drifted from its latest revision.
+		add_action( 'admin_notices', array( $this, 'check_post_drift_notice' ) );
 	}
 
 	/**
@@ -248,5 +251,64 @@ wp acf-revisions test-bridge --post_id=123</code></pre>
 		}
 
 		return $output ?: __( '(no flexible content)', 'acf-revisions' );
+	}
+
+	/**
+	 * Show admin notice if the current post's ACF sections data
+	 * has drifted from its latest revision.
+	 *
+	 * Detects modifications made outside the admin (AI agents,
+	 * WP-CLI, raw SQL) and prompts the user to verify.
+	 */
+	public function check_post_drift_notice(): void {
+		$screen = get_current_screen();
+		if ( ! $screen || 'post' !== $screen->base ) {
+			return;
+		}
+
+		$post_id = get_the_ID();
+		if ( ! $post_id ) {
+			return;
+		}
+
+		$bridge = acfr_get_bridge();
+		if ( ! $bridge || ! $bridge->is_tracked_post_type( $post_id ) ) {
+			return;
+		}
+
+		$sections = get_post_meta( $post_id, 'sections', true );
+		if ( ! is_array( $sections ) || count( $sections ) < 2 ) {
+			return;
+		}
+
+		$diff = $bridge->diff_against_latest_revision( $post_id );
+		if ( ! $diff['revision_id'] ) {
+			return;
+		}
+
+		$total_diffs = count( $diff['added'] ) + count( $diff['removed'] ) + count( $diff['changed'] );
+		if ( $total_diffs < 3 ) {
+			return;
+		}
+
+		$rev_link = admin_url( 'revision.php?revision=' . $diff['revision_id'] );
+		?>
+		<div class="notice notice-warning is-dismissible">
+			<p>
+				<strong><?php esc_html_e( 'ACF Revisions:', 'acf-revisions' ); ?></strong>
+				<?php
+				echo wp_kses_post( sprintf(
+					__( 'This page\'s ACF sections data has drifted from the latest revision (%1$d added, %2$d removed, %3$d changed).', 'acf-revisions' ),
+					count( $diff['added'] ),
+					count( $diff['removed'] ),
+					count( $diff['changed'] )
+				) );
+				?>
+				<a href="<?php echo esc_url( $rev_link ); ?>">
+					<?php esc_html_e( 'Compare with revision', 'acf-revisions' ); ?>
+				</a>
+			</p>
+		</div>
+		<?php
 	}
 }

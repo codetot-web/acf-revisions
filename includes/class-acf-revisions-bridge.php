@@ -654,6 +654,72 @@ class ACFR_Bridge {
 	}
 
 	/**
+	 * Compare current post sections meta against the latest revision.
+	 *
+	 * Detects manual changes made outside the WordPress admin (e.g., by
+	 * AI agents, WP-CLI, raw SQL). Returns a structured diff of keys:
+	 *
+	 *   - added:   keys present in current but not in latest revision
+	 *   - removed: keys present in latest revision but not in current
+	 *   - changed: keys in both but values differ
+	 *
+	 * @param int $post_id Post ID.
+	 * @return array{added: array, removed: array, changed: array, revision_id: int|null}
+	 */
+	public function diff_against_latest_revision( int $post_id ): array {
+		$revisions = wp_get_post_revisions( $post_id, array(
+			'posts_per_page' => 1,
+			'orderby'        => 'post_date',
+			'order'          => 'DESC',
+		) );
+
+		if ( empty( $revisions ) ) {
+			return array(
+				'added'       => array(),
+				'removed'     => array(),
+				'changed'     => array(),
+				'revision_id' => null,
+			);
+		}
+
+		$rev = reset( $revisions );
+		$rev_id = $rev->ID;
+
+		$current = $this->get_acf_section_meta( $post_id );
+		$revision = $this->get_acf_section_meta( $rev_id );
+
+		$added   = array();
+		$removed = array();
+		$changed = array();
+
+		// Find keys added or changed in current vs revision.
+		foreach ( $current as $key => $value ) {
+			if ( ! array_key_exists( $key, $revision ) ) {
+				$added[ $key ] = $value;
+			} elseif ( $revision[ $key ] !== $value ) {
+				$changed[ $key ] = array(
+					'from' => $revision[ $key ],
+					'to'   => $value,
+				);
+			}
+		}
+
+		// Find keys removed (in revision but not in current).
+		foreach ( $revision as $key => $value ) {
+			if ( ! array_key_exists( $key, $current ) ) {
+				$removed[ $key ] = $value;
+			}
+		}
+
+		return array(
+			'added'       => $added,
+			'removed'     => $removed,
+			'changed'     => $changed,
+			'revision_id' => $rev_id,
+		);
+	}
+
+	/**
 	 * Count field values (non-ref, non-layout-array) for sections.
 	 *
 	 * @param int $post_id Post ID.
