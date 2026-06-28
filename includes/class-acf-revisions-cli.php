@@ -215,9 +215,128 @@ class ACFR_CLI extends WP_CLI_Command {
 
 		WP_CLI::success( 'Bridge test completed.' );
 	}
+
+	/**
+	 * Restore ACF sections meta from a revision to its parent post.
+	 *
+	 * Copies all sections_% and _sections% meta from the revision post
+	 * back to the parent post. Creates a backup of the current state
+	 * first in wp_options (_acfr_restore_backup_{post_id}).
+	 *
+	 * ## OPTIONS
+	 *
+	 * <revision_id>
+	 * : The revision post ID to restore from.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp acf-revisions restore 6732
+	 *
+	 * @param array $args       Positional arguments.
+	 * @param array $assoc_args Associative arguments.
+	 */
+	public function restore( array $args, array $assoc_args ): void {
+		$rev_id = (int) $args[0];
+		$parent_id = wp_is_post_revision( $rev_id );
+
+		if ( ! $parent_id ) {
+			WP_CLI::error( "Post $rev_id is not a revision." );
+		}
+
+		$parent = get_post( $parent_id );
+		WP_CLI::log( sprintf(
+			'Restoring revision %d → post %d (%s)...',
+			$rev_id,
+			$parent_id,
+			$parent->post_title
+		) );
+
+		// Show summary before restoring.
+		$rev_meta_count = count( acfr_get_bridge()->get_acf_section_meta( $rev_id ) );
+		$cur_meta_count = count( acfr_get_bridge()->get_acf_section_meta( $parent_id ) );
+
+		WP_CLI::log( "Current ACF keys on post: $cur_meta_count" );
+		WP_CLI::log( "ACF keys on revision:   $rev_meta_count" );
+
+		// Confirm.
+		WP_CLI::confirm( 'Proceed with restore?' );
+
+		// Run restore.
+		$copied = acfr_restore_revision( $rev_id );
+
+		WP_CLI::success( sprintf(
+			'Restored revision %d → post %d. Copied %d meta keys. Backup saved as _acfr_restore_backup_%d.',
+			$rev_id,
+			$parent_id,
+			$copied,
+			$parent_id
+		) );
+	}
 }
 
 /**
  * Register the WP-CLI commands.
  */
 WP_CLI::add_command( 'acf-revisions', 'ACFR_CLI' );
+
+/**
+ * Restore ACF sections meta from a revision.
+ *
+ * @param int $rev_id Revision post ID.
+ * @return int Parent post ID.
+ */
+function acfr_restore_revision( int $rev_id ): int {
+	$parent_id = wp_is_post_revision( $rev_id );
+	if ( ! $parent_id ) {
+		throw new InvalidArgumentException( "Post $rev_id is not a revision." );
+	}
+
+	// 1. Backup current ACF meta.
+	$current_backup = array();
+	$meta = get_post_meta( $parent_id );
+	foreach ( $meta as $key => $values ) {
+		if ( str_starts_with( $key, 'sections_' ) || str_starts_with( $key, '_sections' ) ) {
+			$current_backup[ $key ] = end( $values );
+		}
+	}
+	update_option( '_acfr_restore_backup_' . $parent_id, $current_backup, false );
+
+	// 2. Delete current ACF meta on parent.
+	foreach ( array_keys( $current_backup ) as $key ) {
+		delete_post_meta( $parent_id, $key );
+	}
+
+	// 3. Copy sections_% and _sections_% meta from revision to parent.
+	$rev_meta = get_post_meta( $rev_id );
+	$copied   = 0;
+	foreach ( $rev_meta as $key => $values ) {
+		if ( str_starts_with( $key, 'sections_' ) || str_starts_with( $key, '_sections' ) ) {
+			$val = maybe_unserialize( end( $values ) );
+			update_post_meta( $parent_id, $key, $val );
+			$copied++;
+		}
+	}
+
+	// 4. Ensure _sections ref key exists.
+	if ( ! metadata_exists( 'post', $parent_id, '_sections' ) ) {
+		$acf_key = get_post_meta( $rev_id, '_sections', true );
+		if ( $acf_key ) {
+			update_post_meta( $parent_id, '_sections', $acf_key );
+			$copied++;
+		}
+	}
+
+	// 5. Clear ACF field cache.
+	if ( function_exists( 'acf_get_store' ) ) {
+		$store = acf_get_store( 'fields' );
+		if ( $store ) {
+			$store->reset();
+		}
+		$store = acf_get_store( 'values' );
+		if ( $store ) {
+			$store->reset();
+		}
+	}
+
+	return $copied;
+}
