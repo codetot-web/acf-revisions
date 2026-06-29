@@ -67,21 +67,12 @@ register_activation_hook( __FILE__, function () {
 	}
 
 	// Ensure the post types using flexible content support revisions.
-	$flexible_post_types = apply_filters( 'acfr_post_types', array( 'page', 'post' ) );
+		$flexible_post_types = apply_filters( 'acfr_post_types', array( 'page', 'post' ) );
 	foreach ( $flexible_post_types as $pt ) {
 		$post_type_obj = get_post_type_object( $pt );
 		if ( $post_type_obj && ! post_type_supports( $pt, 'revisions' ) ) {
-			// Log a notice but don't block activation.
-			trigger_error(
-				esc_html(
-					sprintf(
-						// translators: %s is the post type name.
-						__( 'ACF Revisions: Post type "%s" does not support revisions. Meta will not be revisioned.', 'acf-revisions' ),
-						$pt
-					)
-				),
-				E_USER_NOTICE
-			);
+			// Silently skip — this is informational, not blocking.
+			continue;
 		}
 	}
 

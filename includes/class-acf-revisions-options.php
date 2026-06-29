@@ -220,7 +220,7 @@ class ACFR_Options_Bridge {
 		}
 
 		if ( ! isset( $backups[ $index ] ) ) {
-			throw new InvalidArgumentException( "Snapshot index $index not found. Available: 0-" . ( count( $backups ) - 1 ) );
+			throw new InvalidArgumentException( esc_html( "Snapshot index $index not found. Available: 0-" . ( count( $backups ) - 1 ) ) );
 		}
 
 		$snapshot = $backups[ $index ]['snapshot'];

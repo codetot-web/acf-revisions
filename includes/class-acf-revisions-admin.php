@@ -80,10 +80,22 @@ class ACFR_Admin {
 					<p>
 						<strong><?php echo esc_html__( 'Integrity Check Results', 'acf-revisions' ); ?></strong>
 					</p>
-					<ul>
-						<li><?php echo esc_html( sprintf( __( 'Posts checked: %d', 'acf-revisions' ), $result['total'] ) ); ?></li>
-						<li><?php echo esc_html( sprintf( __( 'Issues found: %d', 'acf-revisions' ), count( $result['issues'] ) ) ); ?></li>
-						<li><?php echo esc_html( sprintf( __( 'Auto-fixed: %d', 'acf-revisions' ), $result['fixed'] ) ); ?></li>
+										<ul>
+											<li><?php echo esc_html( sprintf(
+												/* translators: %d is the number of posts checked. */
+												__( 'Posts checked: %d', 'acf-revisions' ),
+												$result['total']
+											) ); ?></li>
+											<li><?php echo esc_html( sprintf(
+												/* translators: %d is the number of issues found. */
+												__( 'Issues found: %d', 'acf-revisions' ),
+												count( $result['issues'] )
+											) ); ?></li>
+											<li><?php echo esc_html( sprintf(
+												/* translators: %d is the number of issues auto-fixed. */
+												__( 'Auto-fixed: %d', 'acf-revisions' ),
+												$result['fixed']
+											) ); ?></li>
 					</ul>
 					<?php if ( ! empty( $result['issues'] ) ) : ?>
 						<details>
@@ -111,14 +123,14 @@ class ACFR_Admin {
 					<td>
 						<p><?php echo esc_html__( 'Verify that all pages have the correct ACF flexible content meta structure. Detects orphaned meta keys, missing reference keys, and data inconsistencies.', 'acf-revisions' ); ?></p>
 						<?php
-						$check_url = wp_nonce_url(
-							add_query_arg( array( 'action' => 'integrity_check' ) ),
-							'acfr_action'
-						);
-						$fix_url = wp_nonce_url(
-							add_query_arg( array( 'action' => 'integrity_check', 'fix' => '1' ) ),
-							'acfr_action'
-						);
+					$check_url = wp_nonce_url(
+						add_query_arg( array( 'action' => 'integrity_check' ) ),
+						'acfr_action'
+					);
+					$fix_url = wp_nonce_url(
+						add_query_arg( array( 'action' => 'integrity_check', 'fix' => '1' ) ),
+						'acfr_action'
+					);
 						?>
 						<a href="<?php echo esc_url( $check_url ); ?>" class="button">
 							<?php echo esc_html__( 'Run Integrity Check', 'acf-revisions' ); ?>
@@ -298,6 +310,7 @@ wp acf-revisions test-bridge --post_id=123</code></pre>
 				<strong><?php esc_html_e( 'ACF Revisions:', 'acf-revisions' ); ?></strong>
 				<?php
 				echo wp_kses_post( sprintf(
+					/* translators: %1$d = added, %2$d = removed, %3$d = changed. */
 					__( 'This page\'s ACF sections data has drifted from the latest revision (%1$d added, %2$d removed, %3$d changed).', 'acf-revisions' ),
 					count( $diff['added'] ),
 					count( $diff['removed'] ),

@@ -669,7 +669,7 @@ WP_CLI::add_command( 'acf-revisions', 'ACFR_CLI' );
 function acfr_restore_revision( int $rev_id ): int {
 	$parent_id = wp_is_post_revision( $rev_id );
 	if ( ! $parent_id ) {
-		throw new InvalidArgumentException( "Post $rev_id is not a revision." );
+		throw new InvalidArgumentException( esc_html( "Post $rev_id is not a revision." ) );
 	}
 
 	// 1. Backup current ACF meta.

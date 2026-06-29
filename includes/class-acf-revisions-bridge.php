@@ -513,8 +513,14 @@ class ACFR_Bridge {
 			return;
 		}
 
-		// Only guard classic-editor form submissions.
-		if ( empty( $_POST['acf'] ) ) {
+		// Only guard classic-editor form submissions with nonce.
+		if ( empty( $_POST['acf'] ) || ! isset( $_POST['_wpnonce'] ) ) {
+			return;
+		}
+
+		// Verify the nonce (uses standard WP post save nonce).
+		$nonce = sanitize_key( $_POST['_wpnonce'] );
+		if ( ! wp_verify_nonce( $nonce, 'update-post_' . $post_id ) ) {
 			return;
 		}
 
@@ -536,11 +542,13 @@ class ACFR_Bridge {
 			return;
 		}
 
-		$submitted_rows = isset( $_POST['acf'][ $field_key ] ) ? (array) $_POST['acf'][ $field_key ] : array();
+		// Unsanitized raw data — ACF POST keys are field keys we control.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$acf_data = isset( $_POST['acf'][ $field_key ] ) ? (array) wp_unslash( $_POST['acf'][ $field_key ] ) : array();
 
 		// Count non-empty submitted rows (rows with actual content, not just layout name).
 		$non_empty_rows = 0;
-		foreach ( $submitted_rows as $row ) {
+		foreach ( $acf_data as $row ) {
 			if ( is_array( $row ) ) {
 				// Count sub-fields that have non-empty values.
 				$filled = 0;
@@ -566,21 +574,22 @@ class ACFR_Bridge {
 			wp_die(
 				wp_kses_post( sprintf(
 					'<h2>%s</h2><p>%s</p><p>%s</p><p>%s</p>',
-					__( 'ACF Revisions: Save Blocked', 'acf-revisions' ),
+					esc_html__( 'ACF Revisions: Save Blocked', 'acf-revisions' ),
+					// translators: %1$d is the current section count, %2$d is the submitted row count.
 					sprintf(
-						// translators: %1$d is the current section count, %2$d is the submitted count.
-						__( 'Section field values dropped from %1$d sections to %2$d submitted rows. This looks like ACF field group key mismatch — saving would destroy existing content.', 'acf-revisions' ),
-						$count_current_sections,
-						count( $submitted_rows )
+					// translators: %1$d is the current section count, %2$d is the submitted row count.
+					esc_html__( 'Section field values dropped from %1$d sections to %2$d submitted rows. This looks like ACF field group key mismatch — saving would destroy existing content.', 'acf-revisions' ),
+					$count_current_sections,
+						count( $acf_data )
 					),
-					__( 'The page content has been preserved. Please restore a revision before saving.', 'acf-revisions' ),
+					esc_html__( 'The page content has been preserved. Please restore a revision before saving.', 'acf-revisions' ),
 					sprintf(
 						'<a href="%s">%s</a>',
 						esc_url( admin_url( 'revision.php?revision=' . end( wp_get_post_revisions( $post_id, array( 'posts_per_page' => 1 ) )->ID ) ) ),
-						__( 'View recent revisions', 'acf-revisions' )
+						esc_html__( 'View recent revisions', 'acf-revisions' )
 					)
 				) ),
-				__( 'Save Blocked — ACF Data Loss Detected', 'acf-revisions' ),
+				esc_html__( 'Save Blocked — ACF Data Loss Detected', 'acf-revisions' ),
 				array( 'back_link' => true, 'response' => 409 )
 			);
 			exit;
