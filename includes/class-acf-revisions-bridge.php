@@ -79,12 +79,116 @@ class ACFR_Bridge {
 	}
 
 	/**
+	 * Detect all ACF flexible content fields from post meta patterns.
+	 *
+	 * Scans wp_postmeta for ACF flexible content key patterns:
+	 *   {field_name}           — layout array (value is serialized array of layout names)
+	 *   _{field_name}          — ref key whose value matches field_* / group_* / layout_*
+	 *   {field_name}_N_*       — field values
+	 *   _{field_name}_N_*      — field ref keys
+	 *
+	 * Unlike detect_flex_fields(), this does NOT depend on ACF field
+	 * registration. It reads actual database content, making it robust
+	 * against corrupted or missing ACF JSON files.
+	 *
+	 * @return array[] Array of {name, key, source:'postmeta'} entries.
+	 */
+	public function discover_from_postmeta(): array {
+		global $wpdb;
+
+		$discovered = array();
+
+		// Get ref keys matching ACF field/group/layout pattern.
+		$ref_rows = $wpdb->get_results(
+			"SELECT DISTINCT meta_key, meta_value
+			 FROM $wpdb->postmeta
+			 WHERE meta_key LIKE '\_%'
+			   AND meta_key NOT LIKE '\_\_%'
+			   AND meta_key NOT LIKE '\_o%'
+			   AND LENGTH(meta_key) < 100
+			   AND (
+			       meta_value LIKE 'field\_%'
+			    OR meta_value LIKE 'group\_%'
+			    OR meta_value LIKE 'layout\_%'
+			   )
+			 LIMIT 500"
+		);
+
+		$seen = array();
+		foreach ( $ref_rows as $row ) {
+			// _{field_name} → field_name
+			$field_name = ltrim( $row->meta_key, '_' );
+
+			// Skip if already discovered or too generic.
+			if ( isset( $seen[ $field_name ] ) ) {
+				continue;
+			}
+
+			// Validate: there should be a corresponding {field_name} value key.
+			$has_value = $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM $wpdb->postmeta WHERE meta_key = %s LIMIT 1",
+				$field_name
+			) );
+
+			if ( $has_value > 0 ) {
+				$seen[ $field_name ] = true;
+				$discovered[ $field_name ] = array(
+					'name'      => $field_name,
+					'key'       => $row->meta_value,
+					'source'    => 'postmeta',
+					'group_key' => '',
+				);
+			}
+		}
+
+		// Also discover sub-field patterns: {field_name}_N_{sub} with _{field_name}_N_{sub} refs.
+		$sub_rows = $wpdb->get_results(
+			"SELECT DISTINCT SUBSTRING_INDEX(meta_key, '_', 1) AS prefix
+			 FROM $wpdb->postmeta
+			 WHERE meta_key LIKE '%\\_%\\_%'
+			   AND meta_key REGEXP '^[a-z]+_[0-9]+_'
+			   AND LENGTH(meta_key) < 100
+			 LIMIT 200"
+		);
+
+		foreach ( $sub_rows as $row ) {
+			$candidate = $row->prefix;
+			if ( isset( $seen[ $candidate ] ) ) {
+				continue;
+			}
+
+			// Check for ref key.
+			$ref_key = '_' . $candidate;
+			$ref_val = $wpdb->get_var( $wpdb->prepare(
+				"SELECT meta_value FROM $wpdb->postmeta WHERE meta_key = %s LIMIT 1",
+				$ref_key
+			) );
+
+			if ( $ref_val && preg_match( '/^(field_|group_|layout_)/', $ref_val ) ) {
+				$seen[ $candidate ] = true;
+				$discovered[ $candidate ] = array(
+					'name'      => $candidate,
+					'key'       => $ref_val,
+					'source'    => 'postmeta',
+					'group_key' => '',
+				);
+			}
+		}
+
+		return $discovered;
+	}
+
+	/**
 	 * Detect all registered ACF flexible content fields.
 	 *
-	 * Scans all ACF field groups for fields of type 'flexible_content'.
-	 * Results are cached in $this->flex_fields for the request lifetime.
+	 * First tries ACF registration (acf_get_field_groups). If that
+	 * returns nothing, falls back to scanning actual postmeta data
+	 * for ACF flexible content key patterns (robust against corrupted
+	 * field group JSON).
 	 *
-	 * @return array[] Array of {name, key, group_key} entries.
+	 * Results are cached for the request lifetime.
+	 *
+	 * @return array[] Array of {name, key, source, group_key} entries.
 	 */
 	public function detect_flex_fields(): array {
 		if ( null !== $this->flex_fields ) {
@@ -96,26 +200,39 @@ class ACFR_Bridge {
 		if ( ! function_exists( 'acf_get_field_groups' ) ) {
 			return $this->flex_fields;
 		}
+		if ( ! empty( $this->flex_fields ) ) {
+			return $this->flex_fields;
+		}
 
-		$field_groups = acf_get_field_groups();
-
-		foreach ( $field_groups as $group ) {
-			$fields = acf_get_fields( $group );
-			if ( empty( $fields ) ) {
-				continue;
-			}
-
-			foreach ( $fields as $field ) {
-				if ( isset( $field['type'] ) && 'flexible_content' === $field['type'] ) {
-					$this->flex_fields[ $field['name'] ] = array(
-						'name'      => $field['name'],
-						'key'       => $field['key'],
-						'group_key' => $group['key'],
-					);
+		// Try ACF registration first.
+		if ( function_exists( 'acf_get_field_groups' ) ) {
+			$field_groups = acf_get_field_groups();
+			foreach ( $field_groups as $group ) {
+				$fields = acf_get_fields( $group );
+				if ( empty( $fields ) ) {
+					continue;
+				}
+				foreach ( $fields as $field ) {
+					if ( isset( $field['type'] ) && 'flexible_content' === $field['type'] ) {
+						$this->flex_fields[ $field['name'] ] = array(
+							'name'      => $field['name'],
+							'key'       => $field['key'],
+							'source'    => 'registration',
+							'group_key' => $group['key'],
+						);
+					}
 				}
 			}
 		}
 
+		// Fallback: scan postmeta for ACF flex field patterns.
+		// This is robust against corrupted field group JSON.
+		if ( empty( $this->flex_fields ) ) {
+			$from_meta = $this->discover_from_postmeta();
+			foreach ( $from_meta as $name => $info ) {
+				$this->flex_fields[ $name ] = $info;
+			}
+		}
 		return $this->flex_fields;
 	}
 
