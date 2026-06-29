@@ -120,13 +120,100 @@ class ACFR_Bridge {
 	}
 
 	/**
-	 * Check if a meta key belongs to any detected flexible content field.
+	 * Cache of valid sub-field names per flex field (from ACF registration).
+	 *
+	 * @var array<string, string[]>|null
+	 */
+	private $valid_sub_field_names = null;
+
+	/**
+	 * Get valid sub-field names for all flexible content fields.
+	 *
+	 * Walks ACF field group definitions to build a set of all valid
+	 * sub-field names across all layouts. This ensures we only track
+	 * meta keys that correspond to actual ACF-registered fields,
+	 * preventing accidental capture of non-ACF meta keys.
+	 *
+	 * Example output: [ 'sections' => [ 'css_class', 'title', 'description',
+	 *                                   'image', 'items', 'items_0_title', ... ] ]
+	 *
+	 * @return array<string, string[]> Field name => sub-field names.
+	 */
+	public function get_valid_sub_field_names(): array {
+		if ( null !== $this->valid_sub_field_names ) {
+			return $this->valid_sub_field_names;
+		}
+
+		$this->valid_sub_field_names = array();
+		$fields = $this->detect_flex_fields();
+
+		foreach ( $fields as $name => $info ) {
+			$valid = array();
+			$field = function_exists( 'acf_get_field' ) ? acf_get_field( $info['key'] ) : null;
+			if ( empty( $field['layouts'] ) ) {
+				continue;
+			}
+
+			foreach ( $field['layouts'] as $layout ) {
+				if ( empty( $layout['sub_fields'] ) ) {
+					continue;
+				}
+				$this->walk_sub_fields( $layout['sub_fields'], '', $valid );
+			}
+
+			$this->valid_sub_field_names[ $name ] = array_unique( $valid );
+		}
+
+		return $this->valid_sub_field_names;
+	}
+
+	/**
+	 * Recursively walk ACF sub-fields and build valid meta key names.
+	 *
+	 * For repeaters/flex within layouts, builds dotted paths like
+	 * 'items_0_title' to match meta keys like 'sections_1_items_0_title'.
+	 *
+	 * @param array[] $sub_fields Array of ACF sub-field definitions.
+	 * @param string  $prefix    Current prefix for nested fields.
+	 * @param string[] &$result  Reference to result array.
+	 */
+	private function walk_sub_fields( array $sub_fields, string $prefix, array &$result ): void {
+		foreach ( $sub_fields as $sub ) {
+			$sub_name = $prefix . $sub['name'];
+
+			if ( 'repeater' === ( $sub['type'] ?? '' ) || 'flexible_content' === ( $sub['type'] ?? '' ) ) {
+				// Repeater: items → items_0_{sub_name}, items_1_{sub_name}, ...
+				// Track the parent (e.g. 'items') as valid too.
+				$result[] = $sub_name;
+				if ( ! empty( $sub['sub_fields'] ) ) {
+					$this->walk_sub_fields( $sub['sub_fields'], $sub_name . '_N_', $result );
+				}
+				if ( ! empty( $sub['layouts'] ) ) {
+					foreach ( $sub['layouts'] as $layout ) {
+						if ( ! empty( $layout['sub_fields'] ) ) {
+							$this->walk_sub_fields( $layout['sub_fields'], $sub_name . '_N_', $result );
+						}
+					}
+				}
+			} else {
+				$result[] = $sub_name;
+			}
+		}
+	}
+
+	/**
+	 * Check if a meta key belongs to any detected flexible content field,
+	 * validated against the actual ACF field registration.
 	 *
 	 * Matches patterns like:
-	 *   {field_name}           — layout array (e.g. 'sections')
-	 *   _{field_name}          — field group reference (e.g. '_sections')
-	 *   {field_name}_N_*       — field values (e.g. 'sections_0_title')
-	 *   _{field_name}_N_*      — field ref keys (e.g. '_sections_0_title')
+	 *   {field_name}                     — layout array (e.g. 'sections')
+	 *   _{field_name}                    — ref key (e.g. '_sections')
+	 *   {field_name}_N_{sub_field}       — field values (e.g. 'sections_0_title')
+	 *   _{field_name}_N_{sub_field}      — ref keys (e.g. '_sections_0_title')
+	 *   {field_name}_N_{repeater}_M_{sf} — nested (e.g. 'sections_1_items_0_title')
+	 *
+	 * The N/M indices are dynamic (any number). The sub-field name must
+	 * match a known ACF field from the field group registration.
 	 *
 	 * @param string $meta_key Meta key to check.
 	 * @return bool
@@ -134,13 +221,47 @@ class ACFR_Bridge {
 	public function is_flex_meta_key( string $meta_key ): bool {
 		$fields = $this->detect_flex_fields();
 		if ( empty( $fields ) ) {
-			// Fallback for backward compat: try sections pattern.
+			// No flex fields found. For backward compat, check the 'sections' pattern.
 			return (bool) preg_match( '/^(sections_|_sections)/', $meta_key );
 		}
 
 		foreach ( $fields as $name => $info ) {
-			$prefix = $name . '_';
-			if ( $meta_key === $name || $meta_key === "_$name" || str_starts_with( $meta_key, $prefix ) || str_starts_with( $meta_key, "_$prefix" ) ) {
+			// Exact match: the layout array key itself.
+			if ( $meta_key === $name || $meta_key === "_$name" ) {
+				return true;
+			}
+
+			// Value or ref key: must start with {field_name}_ or _{field_name}_.
+			$prefix   = $name . '_';
+			$ref_prefix = '_' . $name . '_';
+			$is_value = str_starts_with( $meta_key, $prefix );
+			$is_ref   = str_starts_with( $meta_key, $ref_prefix );
+
+			if ( ! $is_value && ! $is_ref ) {
+				continue;
+			}
+
+			// Extract the field name part after {field_name}_N_ or _{field_name}_N_.
+			// e.g. 'sections_0_title' → 'title'
+			//      '_sections_0_title' → 'title'
+			//      'sections_1_items_0_title' → 'items_0_title'
+			$stripped = $is_value ? substr( $meta_key, strlen( $prefix ) ) : substr( $meta_key, strlen( $ref_prefix ) );
+
+			// Remove the numeric index prefix (e.g. '0_' or '1_') to get the field name.
+			$field_name = preg_replace( '/^\d+_/', '', $stripped, 1 );
+
+			// Normalize nested numeric indices to match ACF registration patterns.
+			// e.g. 'items_0_title' → 'items_N_title' for lookup against valid names.
+			$normalized = preg_replace( '/_\d+_/', '_N_', $field_name );
+
+			// Validate against known ACF sub-field names.
+			$valid_names = $this->get_valid_sub_field_names();
+			if ( ! empty( $valid_names[ $name ] ) ) {
+				if ( in_array( $normalized, $valid_names[ $name ], true ) ) {
+					return true;
+				}
+			} else {
+				// No registration loaded — accept by prefix as fallback.
 				return true;
 			}
 		}
