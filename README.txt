@@ -71,7 +71,6 @@ Yes. Use the `acf_revisions_field_group_key` filter:
 
 1. ACF Revisions admin tools page with integrity check
 2. ACF Sections diff in the WordPress revision comparison page
-3. WP-CLI commands for revision management
 
 == Changelog ==
 
