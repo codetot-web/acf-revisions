@@ -744,65 +744,83 @@ class ACFR_Bridge {
 			return; // Already minimal data, nothing to guard.
 		}
 
-		// Check how many section rows were submitted via POST.
-		// ACF flexible content uses the field key as POST key.
-		$field_key = $this->get_sections_field_key();
-		if ( ! $field_key ) {
+		// Check all flexible content field keys submitted via POST.
+		// ACF flexible content uses the field key as the POST key.
+		$flex_field_keys = $this->get_flex_field_keys();
+		if ( empty( $flex_field_keys ) ) {
 			return;
 		}
 
-		// Unsanitized raw data — ACF POST keys are field keys we control.
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$acf_data = isset( $_POST['acf'][ $field_key ] ) ? (array) wp_unslash( $_POST['acf'][ $field_key ] ) : array();
+		$total_submitted_rows = 0;
+		$any_field_tracked    = false;
 
-		// Count non-empty submitted rows (rows with actual content, not just layout name).
-		$non_empty_rows = 0;
-		foreach ( $acf_data as $row ) {
-			if ( is_array( $row ) ) {
-				// Count sub-fields that have non-empty values.
-				$filled = 0;
-				foreach ( $row as $sub_key => $sub_val ) {
-					if ( 'acf_fc_layout' !== $sub_key && ! empty( $sub_val ) ) {
-						$filled++;
+		foreach ( $flex_field_keys as $flex_name => $field_key ) {
+			// Get current layout array for this field.
+			$current_layouts = get_post_meta( $post_id, $flex_name, true );
+			if ( ! is_array( $current_layouts ) || count( $current_layouts ) < 2 ) {
+				continue;
+			}
+			$any_field_tracked = true;
+
+			// Unsanitized raw data — ACF POST keys are dynamically-generated keys.
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$submitted = isset( $_POST['acf'][ $field_key ] ) ? (array) wp_unslash( $_POST['acf'][ $field_key ] ) : array();
+
+			// Count non-empty submitted rows.
+			$non_empty_rows = 0;
+			foreach ( $submitted as $row ) {
+				if ( is_array( $row ) ) {
+					$filled = 0;
+					foreach ( $row as $sub_key => $sub_val ) {
+						if ( 'acf_fc_layout' !== $sub_key && ! empty( $sub_val ) ) {
+							$filled++;
+						}
+					}
+					if ( $filled > 0 ) {
+						$non_empty_rows++;
 					}
 				}
-				if ( $filled > 0 ) {
-					$non_empty_rows++;
-				}
+			}
+
+			// If user deliberately cleared the page, allow it.
+			if ( 0 === $non_empty_rows ) {
+				continue;
+			}
+
+			// If submitted rows < half of current, flag it.
+			if ( $non_empty_rows < count( $current_layouts ) / 2 ) {
+				$total_submitted_rows   = count( $submitted );
+				$count_current_sections = count( $current_layouts );
+				break;
 			}
 		}
 
-		// If user deliberately cleared the page (0 non-empty rows), allow it.
-		if ( 0 === $non_empty_rows ) {
+		if ( 0 === $total_submitted_rows || ! $any_field_tracked ) {
 			return;
 		}
 
-		// If submitted row count is less than half of current, block.
-		if ( $non_empty_rows < count( $current_sections ) / 2 ) {
-			$count_current_sections = count( $current_sections );
-			wp_die(
-				wp_kses_post( sprintf(
-					'<h2>%s</h2><p>%s</p><p>%s</p><p>%s</p>',
-					esc_html__( 'ACF Revisions: Save Blocked', 'acf-revisions' ),
-					// translators: %1$d is the current section count, %2$d is the submitted row count.
-					sprintf(
-					// translators: %1$d is the current section count, %2$d is the submitted row count.
-					esc_html__( 'Section field values dropped from %1$d sections to %2$d submitted rows. This looks like ACF field group key mismatch — saving would destroy existing content.', 'acf-revisions' ),
+		wp_die(
+			wp_kses_post( sprintf(
+				'<h2>%s</h2><p>%s</p><p>%s</p><p>%s</p>',
+				esc_html__( 'ACF Revisions: Save Blocked', 'acf-revisions' ),
+				// translators: %1$d is the current section count, %2$d is the submitted row count.
+				sprintf(
+				// translators: %1$d is the current section count, %2$d is the submitted row count.
+				esc_html__( 'Section field values dropped from %1$d sections to %2$d submitted rows. This looks like ACF field group key mismatch — saving would destroy existing content.', 'acf-revisions' ),
 					$count_current_sections,
-						count( $acf_data )
-					),
-					esc_html__( 'The page content has been preserved. Please restore a revision before saving.', 'acf-revisions' ),
-					sprintf(
-						'<a href="%s">%s</a>',
-						esc_url( admin_url( 'revision.php?revision=' . end( wp_get_post_revisions( $post_id, array( 'posts_per_page' => 1 ) )->ID ) ) ),
-						esc_html__( 'View recent revisions', 'acf-revisions' )
-					)
-				) ),
-				esc_html__( 'Save Blocked — ACF Data Loss Detected', 'acf-revisions' ),
-				array( 'back_link' => true, 'response' => 409 )
-			);
-			exit;
-		}
+					$total_submitted_rows
+				),
+				esc_html__( 'The page content has been preserved. Please restore a revision before saving.', 'acf-revisions' ),
+				sprintf(
+					'<a href="%s">%s</a>',
+					esc_url( admin_url( 'revision.php?revision=' . end( wp_get_post_revisions( $post_id, array( 'posts_per_page' => 1 ) )->ID ) ) ),
+					esc_html__( 'View recent revisions', 'acf-revisions' )
+				)
+			) ),
+			esc_html__( 'Save Blocked — ACF Data Loss Detected', 'acf-revisions' ),
+			array( 'back_link' => true, 'response' => 409 )
+		);
+		exit;
 	}
 
 	/**
