@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1544 500" width="1544" height="500">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a237e"/>
+      <stop offset="100%" stop-color="#0d47a1"/>
+    </linearGradient>
+  </defs>
+  <rect width="1544" height="500" fill="url(#bg)"/>
+  <!-- Grid pattern -->
+  <g stroke="#ffffff10" stroke-width="1">
+    <line x1="0" y1="100" x2="1544" y2="100"/>
+    <line x1="0" y1="200" x2="1544" y2="200"/>
+    <line x1="0" y1="300" x2="1544" y2="300"/>
+    <line x1="0" y1="400" x2="1544" y2="400"/>
+    <line x1="200" y1="0" x2="200" y2="500"/>
+    <line x1="400" y1="0" x2="400" y2="500"/>
+    <line x1="600" y1="0" x2="600" y2="500"/>
+    <line x1="800" y1="0" x2="800" y2="500"/>
+    <line x1="1000" y1="0" x2="1000" y2="500"/>
+    <line x1="1200" y1="0" x2="1200" y2="500"/>
+    <line x1="1400" y1="0" x2="1400" y2="500"/>
+  </g>
+  <!-- Icon -->
+  <circle cx="140" cy="250" r="60" fill="none" stroke="#42a5f5" stroke-width="6"/>
+  <ellipse cx="140" cy="220" rx="28" ry="7" fill="none" stroke="#90caf9" stroke-width="4"/>
+  <path d="M112 220 v18 c0 4 12.5 7 28 7 s28-3 28-7V220" fill="none" stroke="#90caf9" stroke-width="4"/>
+  <path d="M112 238 v18 c0 4 12.5 7 28 7 s28-3 28-7V238" fill="none" stroke="#90caf9" stroke-width="4"/>
+  <!-- Title -->
+  <text x="240" y="220" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="700" fill="#fff">ACF Revisions</text>
+  <text x="240" y="275" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#90caf9">Bridge hooks for ACF Flexible Content revisioning</text>
+  <!-- Feature tags -->
+  <rect x="240" y="310" rx="4" ry="4" width="130" height="28" fill="#ffffff15"/>
+  <text x="248" y="329" font-family="monospace" font-size="13" fill="#bbdefb">Auto-backup</text>
+  <rect x="380" y="310" rx="4" ry="4" width="140" height="28" fill="#ffffff15"/>
+  <text x="388" y="329" font-family="monospace" font-size="13" fill="#bbdefb">Integrity Check</text>
+  <rect x="530" y="310" rx="4" ry="4" width="110" height="28" fill="#ffffff15"/>
+  <text x="538" y="329" font-family="monospace" font-size="13" fill="#bbdefb">WP-CLI</text>
+  <rect x="650" y="310" rx="4" ry="4" width="100" height="28" fill="#ffffff15"/>
+  <text x="658" y="329" font-family="monospace" font-size="13" fill="#bbdefb">GPL v2+</text>
+  <!-- Right side: section preview -->
+  <rect x="1000" y="160" rx="8" ry="8" width="460" height="220" fill="#ffffff08"/>
+  <!-- Section row 1 -->
+  <rect x="1020" y="180" rx="4" ry="4" width="8" height="8" fill="#69f0ae"/>
+  <text x="1040" y="188" font-family="monospace" font-size="11" fill="#a5d6a7">hero_creative_image</text>
+  <line x1="1020" y1="200" x2="1440" y2="200" stroke="#ffffff10" stroke-width="1"/>
+  <!-- Section row 2 -->
+  <rect x="1020" y="215" rx="4" ry="4" width="8" height="8" fill="#69f0ae"/>
+  <text x="1040" y="223" font-family="monospace" font-size="11" fill="#a5d6a7">feature_tabs</text>
+  <line x1="1020" y1="235" x2="1440" y2="235" stroke="#ffffff10" stroke-width="1"/>
+  <!-- Section row 3 - changed -->
+  <rect x="1020" y="250" rx="4" ry="4" width="8" height="8" fill="#ffd54f"/>
+  <text x="1040" y="258" font-family="monospace" font-size="11" fill="#ffe082">case_study_slider</text>
+  <text x="1220" y="258" font-family="monospace" font-size="10" fill="#ffd54f">title: "Dự án..." → "Portfolio"</text>
+  <line x1="1020" y1="270" x2="1440" y2="270" stroke="#ffffff10" stroke-width="1"/>
+  <!-- Section row 4 - added -->
+  <rect x="1020" y="285" rx="4" ry="4" width="8" height="8" fill="#69f0ae"/>
+  <text x="1040" y="293" font-family="monospace" font-size="11" fill="#a5d6a7">pricing_grid</text>
+  <text x="1220" y="293" font-family="monospace" font-size="10" fill="#69f0ae">+ new</text>
+  <line x1="1020" y1="305" x2="1440" y2="305" stroke="#ffffff10" stroke-width="1"/>
+  <!-- Section row 5 - removed -->
+  <rect x="1020" y="320" rx="4" ry="4" width="8" height="8" fill="#ef5350"/>
+  <text x="1040" y="328" font-family="monospace" font-size="11" fill="#ef9a9a">contact_section</text>
+  <text x="1220" y="328" font-family="monospace" font-size="10" fill="#ef5350">- removed</text>
+  <!-- Footer -->
+  <text x="772" y="460" font-family="system-ui" font-size="13" fill="#5c6bc0" text-anchor="middle">CODE TOT JSC · codetot.com · GPLv2+</text>
+</svg>

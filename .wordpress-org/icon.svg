@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a73e8"/>
+      <stop offset="100%" stop-color="#0d47a1"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bg)"/>
+  <!-- Database/cylinders representing ACF fields -->
+  <ellipse cx="128" cy="88" rx="48" ry="12" fill="none" stroke="#fff" stroke-width="5"/>
+  <path d="M80 88 v36 c0 6.6 21.5 12 48 12 s48-5.4 48-12V88" fill="none" stroke="#fff" stroke-width="5"/>
+  <path d="M80 124 v36 c0 6.6 21.5 12 48 12 s48-5.4 48-12V124" fill="none" stroke="#fff" stroke-width="5"/>
+  <!-- Undo/restore arrow -->
+  <path d="M172 180 l-28-28 m0 28 l28-28" fill="none" stroke="#82b1ff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M120 152 a36 36 0 1 1 0 24" fill="none" stroke="#82b1ff" stroke-width="5" stroke-linecap="round"/>
+  <!-- Check mark -->
+  <path d="M98 172 l10 10 20-20" fill="none" stroke="#69f0ae" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
