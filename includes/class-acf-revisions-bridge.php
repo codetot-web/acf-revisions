@@ -20,18 +20,16 @@ defined( 'ABSPATH' ) || exit;
 class ACFR_Bridge {
 
 	/**
-	 * Meta key pattern for ACF flexible content fields.
+	 * Cached list of detected flexible content fields.
 	 *
-	 * @var string
-	 */
-	const SECTIONS_PATTERN = '/^(sections_|_sections)/';
-
-	/**
-	 * Flexible content field group key.
+	 * Populated by detect_flex_fields(). Each entry:
+	 *   name      => string (field name, e.g. 'sections')
+	 *   key       => string (ACF field key, e.g. 'field_...')
+	 *   group_key => string (ACF field group key)
 	 *
-	 * @var string
+	 * @var array[]|null
 	 */
-	private $field_group_key = '';
+	private $flex_fields = null;
 
 	/**
 	 * Registered post types to monitor.
@@ -44,14 +42,6 @@ class ACFR_Bridge {
 	 * Constructor.
 	 */
 	public function __construct() {
-		/**
-		 * Filter the field group key for ACF flexible content.
-		 * Defaults to the Flexible Template group (group_69577fd380786).
-		 *
-		 * @param string $field_group_key The ACF field group key.
-		 */
-		$this->field_group_key = apply_filters( 'acfr_field_group_key', 'group_69577fd380786' );
-
 		/**
 		 * Filter which post types should have ACF meta revisioned.
 		 *
@@ -86,6 +76,90 @@ class ACFR_Bridge {
 
 		// Hook 7: Auto-recovery — if field values dropped, restore from pre-save snapshot.
 		add_action( 'acf/save_post', array( $this, 'auto_restore_if_data_loss' ), 20, 1 );
+	}
+
+	/**
+	 * Detect all registered ACF flexible content fields.
+	 *
+	 * Scans all ACF field groups for fields of type 'flexible_content'.
+	 * Results are cached in $this->flex_fields for the request lifetime.
+	 *
+	 * @return array[] Array of {name, key, group_key} entries.
+	 */
+	public function detect_flex_fields(): array {
+		if ( null !== $this->flex_fields ) {
+			return $this->flex_fields;
+		}
+
+		$this->flex_fields = array();
+
+		if ( ! function_exists( 'acf_get_field_groups' ) ) {
+			return $this->flex_fields;
+		}
+
+		$field_groups = acf_get_field_groups();
+
+		foreach ( $field_groups as $group ) {
+			$fields = acf_get_fields( $group );
+			if ( empty( $fields ) ) {
+				continue;
+			}
+
+			foreach ( $fields as $field ) {
+				if ( isset( $field['type'] ) && 'flexible_content' === $field['type'] ) {
+					$this->flex_fields[ $field['name'] ] = array(
+						'name'      => $field['name'],
+						'key'       => $field['key'],
+						'group_key' => $group['key'],
+					);
+				}
+			}
+		}
+
+		return $this->flex_fields;
+	}
+
+	/**
+	 * Check if a meta key belongs to any detected flexible content field.
+	 *
+	 * Matches patterns like:
+	 *   {field_name}           — layout array (e.g. 'sections')
+	 *   _{field_name}          — field group reference (e.g. '_sections')
+	 *   {field_name}_N_*       — field values (e.g. 'sections_0_title')
+	 *   _{field_name}_N_*      — field ref keys (e.g. '_sections_0_title')
+	 *
+	 * @param string $meta_key Meta key to check.
+	 * @return bool
+	 */
+	public function is_flex_meta_key( string $meta_key ): bool {
+		$fields = $this->detect_flex_fields();
+		if ( empty( $fields ) ) {
+			// Fallback for backward compat: try sections pattern.
+			return (bool) preg_match( '/^(sections_|_sections)/', $meta_key );
+		}
+
+		foreach ( $fields as $name => $info ) {
+			$prefix = $name . '_';
+			if ( $meta_key === $name || $meta_key === "_$name" || str_starts_with( $meta_key, $prefix ) || str_starts_with( $meta_key, "_$prefix" ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get field keys for all detected flexible content fields.
+	 *
+	 * @return array<string, string> Field name => ACF field key.
+	 */
+	public function get_flex_field_keys(): array {
+		$fields = $this->detect_flex_fields();
+		$keys   = array();
+		foreach ( $fields as $name => $info ) {
+			$keys[ $name ] = $info['key'];
+		}
+		return $keys;
 	}
 
 	/**
@@ -169,7 +243,18 @@ class ACFR_Bridge {
 	 * @param array $field_group The field group being imported.
 	 */
 	public function snapshot_before_import( array $field_group ): void {
-		if ( ! isset( $field_group['key'] ) || $field_group['key'] !== $this->field_group_key ) {
+		// Only snapshot field groups that contain flexible content fields.
+		$has_flex = false;
+		if ( function_exists( 'acf_get_fields' ) ) {
+			$fields = acf_get_fields( $field_group );
+			foreach ( $fields as $field ) {
+				if ( isset( $field['type'] ) && 'flexible_content' === $field['type'] ) {
+					$has_flex = true;
+					break;
+				}
+			}
+		}
+		if ( ! $has_flex ) {
 			return;
 		}
 
@@ -206,7 +291,7 @@ class ACFR_Bridge {
 	 */
 	public function on_meta_update( int $meta_id, int $post_id, string $meta_key, $_meta_value ): void {
 		// Only track ACF section fields.
-		if ( ! preg_match( self::SECTIONS_PATTERN, $meta_key ) ) {
+		if ( ! $this->is_flex_meta_key( $meta_key ) ) {
 			return;
 		}
 
@@ -282,7 +367,7 @@ class ACFR_Bridge {
 		$acf_meta = array();
 
 		foreach ( $meta as $key => $values ) {
-			if ( preg_match( self::SECTIONS_PATTERN, $key ) ) {
+			if ( $this->is_flex_meta_key( $key ) ) {
 				// Take the last value (most recent).
 				$acf_meta[ $key ] = maybe_unserialize( end( $values ) );
 			}
@@ -303,7 +388,7 @@ class ACFR_Bridge {
 		}
 
 		foreach ( $meta as $key => $values ) {
-			if ( preg_match( self::SECTIONS_PATTERN, $key ) ) {
+			if ( $this->is_flex_meta_key( $key ) ) {
 				delete_post_meta( $post_id, $key );
 			}
 		}
@@ -326,19 +411,22 @@ class ACFR_Bridge {
 	 * @return string|null Field key or null.
 	 */
 	public function get_sections_field_key(): ?string {
-		if ( ! function_exists( 'acf_get_field_group' ) ) {
-			return null;
+		$keys = $this->get_flex_field_keys();
+		if ( ! empty( $keys ) ) {
+			return reset( $keys );
 		}
 
-		$field_group = acf_get_field_group( $this->field_group_key );
-		if ( ! $field_group ) {
+		// Fallback: iterate all field groups for a 'sections' flex field.
+		if ( ! function_exists( 'acf_get_field_groups' ) ) {
 			return null;
 		}
-
-		$fields = acf_get_fields( $field_group );
-		foreach ( $fields as $field ) {
-			if ( 'flexible_content' === ( $field['type'] ?? '' ) && 'sections' === ( $field['name'] ?? '' ) ) {
-				return $field['key'];
+		$groups = acf_get_field_groups();
+		foreach ( $groups as $group ) {
+			$group_fields = acf_get_fields( $group );
+			foreach ( $group_fields as $field ) {
+				if ( 'flexible_content' === ( $field['type'] ?? '' ) && 'sections' === ( $field['name'] ?? '' ) ) {
+					return $field['key'];
+				}
 			}
 		}
 
